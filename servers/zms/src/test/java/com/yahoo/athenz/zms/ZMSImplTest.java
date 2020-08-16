@@ -405,7 +405,43 @@ public class ZMSImplTest {
             }
         }
     }
-    
+
+    private void checkGroupMember(final List<String> checkList, List<GroupMember> members) {
+        boolean found = false;
+        for (String groupMemberName: checkList) {
+            for (GroupMember groupMember: members) {
+                if (groupMember.getMemberName().equals(groupMemberName)){
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                fail("Member " + groupMemberName + " not found");
+            }
+        }
+    }
+
+
+    private Group createGroupObject(String domainName, String groupName, String member1, String member2) {
+
+        List<GroupMember> members = new ArrayList<>();
+        if (member1 != null) {
+            members.add(new GroupMember().setMemberName(member1));
+        }
+        if (member2 != null) {
+            members.add(new GroupMember().setMemberName(member2));
+        }
+        return createGroupObject(domainName, groupName, members);
+    }
+
+    private Group createGroupObject(String domainName, String groupName, List<GroupMember> members) {
+
+        Group group = new Group();
+        group.setName(ZMSUtils.groupResourceName(domainName, groupName));
+        group.setGroupMembers(members);
+        return group;
+    }
+
     private Role createRoleObject(String domainName, String roleName,
             String trust) {
         Role role = new Role();
@@ -15520,7 +15556,7 @@ public class ZMSImplTest {
                 .setPolicy(12).setPublicKey(13)
                 .setRole(14).setRoleMember(15)
                 .setService(16).setServiceHost(17)
-                .setSubdomain(18);
+                .setSubdomain(18).setGroupMember(19).setGroup(20);
         
         zms.putQuota(mockDomRsrcCtx, domainName, auditRef, quota);
 
@@ -15574,7 +15610,7 @@ public class ZMSImplTest {
                 .setPolicy(12).setPublicKey(13)
                 .setRole(14).setRoleMember(15)
                 .setService(16).setServiceHost(17)
-                .setSubdomain(18);
+                .setSubdomain(18).setGroupMember(19).setGroup(20);
         
         zms.putQuota(mockDomRsrcCtx, domainName, auditRef, quota);
 
@@ -19427,17 +19463,17 @@ public class ZMSImplTest {
 
         // with authority null we always get null
 
-        assertNull(zms.getUserAuthorityExpiryAttr(role));
+        assertNull(zms.getUserAuthorityExpiryAttr(role.getUserAuthorityExpiration()));
 
         zms.userAuthority = Mockito.mock(Authority.class);
 
-        assertEquals("elevated-clearance", zms.getUserAuthorityExpiryAttr(role));
+        assertEquals("elevated-clearance", zms.getUserAuthorityExpiryAttr(role.getUserAuthorityExpiration()));
 
         role.setUserAuthorityExpiration("");
-        assertNull(zms.getUserAuthorityExpiryAttr(role));
+        assertNull(zms.getUserAuthorityExpiryAttr(role.getUserAuthorityExpiration()));
 
         role.setUserAuthorityExpiration(null);
-        assertNull(zms.getUserAuthorityExpiryAttr(role));
+        assertNull(zms.getUserAuthorityExpiryAttr(role.getUserAuthorityExpiration()));
 
         zms.userAuthority = savedAuthority;
     }
@@ -19452,7 +19488,7 @@ public class ZMSImplTest {
 
         // with authority null we always get null
 
-        assertNull(zms.getUserAuthorityExpiry("user.john", role, "unit-test"));
+        assertNull(zms.getUserAuthorityExpiry("user.john", role.getUserAuthorityExpiration(), "unit-test"));
 
         Authority authority = Mockito.mock(Authority.class);
         Mockito.when(authority.getDateAttribute("user.john", "elevated-clearance"))
@@ -19461,10 +19497,10 @@ public class ZMSImplTest {
                 .thenReturn(null);
         zms.userAuthority = authority;
 
-        assertNotNull(zms.getUserAuthorityExpiry("user.john", role, "unit-test"));
+        assertNotNull(zms.getUserAuthorityExpiry("user.john", role.getUserAuthorityExpiration(), "unit-test"));
 
         try {
-            zms.getUserAuthorityExpiry("user.joe", role, "unit-test");
+            zms.getUserAuthorityExpiry("user.joe", role.getUserAuthorityExpiration(), "unit-test");
             fail();
         } catch (ResourceException ex) {
             assertTrue(ex.getMessage().contains("User does not have required user authority expiry configured"));
@@ -19546,20 +19582,20 @@ public class ZMSImplTest {
         // with authority null we always get exceptions if we have
         // not empty values specified
 
-        zms.validateRoleUserAuthorityAttributes(null, null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes(null, "", "unit-test");
-        zms.validateRoleUserAuthorityAttributes("", null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes("", "", "unit-test");
+        zms.validateUserAuthorityAttributes(null, null, "unit-test");
+        zms.validateUserAuthorityAttributes(null, "", "unit-test");
+        zms.validateUserAuthorityAttributes("", null, "unit-test");
+        zms.validateUserAuthorityAttributes("", "", "unit-test");
 
         try {
-            zms.validateRoleUserAuthorityAttributes("attr1", null, "unit-test");
+            zms.validateUserAuthorityAttributes("attr1", null, "unit-test");
             fail();
         } catch (ResourceException ex) {
             assertTrue(ex.getMessage().contains("User Authority filter specified without a valid user authority"));
         }
 
         try {
-            zms.validateRoleUserAuthorityAttributes(null, "attr1", "unit-test");
+            zms.validateUserAuthorityAttributes(null, "attr1", "unit-test");
             fail();
         } catch (ResourceException ex) {
             assertTrue(ex.getMessage().contains("User Authority expiry specified without a valid user authority"));
@@ -19577,29 +19613,29 @@ public class ZMSImplTest {
 
         // valid values
 
-        zms.validateRoleUserAuthorityAttributes("elevated-clearance", null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes("elevated-clearance", "", "unit-test");
-        zms.validateRoleUserAuthorityAttributes("elevated-clearance,full-time-employee", null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes("full-time-employee,elevated-clearance", "term-date", "unit-test");
-        zms.validateRoleUserAuthorityAttributes("", "term-date", "unit-test");
-        zms.validateRoleUserAuthorityAttributes(null, "term-date", "unit-test");
+        zms.validateUserAuthorityAttributes("elevated-clearance", null, "unit-test");
+        zms.validateUserAuthorityAttributes("elevated-clearance", "", "unit-test");
+        zms.validateUserAuthorityAttributes("elevated-clearance,full-time-employee", null, "unit-test");
+        zms.validateUserAuthorityAttributes("full-time-employee,elevated-clearance", "term-date", "unit-test");
+        zms.validateUserAuthorityAttributes("", "term-date", "unit-test");
+        zms.validateUserAuthorityAttributes(null, "term-date", "unit-test");
 
-        zms.validateRoleUserAuthorityAttributes(null, null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes(null, "", "unit-test");
-        zms.validateRoleUserAuthorityAttributes("", null, "unit-test");
-        zms.validateRoleUserAuthorityAttributes("", "", "unit-test");
+        zms.validateUserAuthorityAttributes(null, null, "unit-test");
+        zms.validateUserAuthorityAttributes(null, "", "unit-test");
+        zms.validateUserAuthorityAttributes("", null, "unit-test");
+        zms.validateUserAuthorityAttributes("", "", "unit-test");
 
         // invalid values
 
         try {
-            zms.validateRoleUserAuthorityAttributes("elevated-clearance,contractor", null, "unit-test");
+            zms.validateUserAuthorityAttributes("elevated-clearance,contractor", null, "unit-test");
             fail();
         } catch (ResourceException ex) {
             assertTrue(ex.getMessage().contains("contractor is not a valid user authority attribute"));
         }
 
         try {
-            zms.validateRoleUserAuthorityAttributes("elevated-clearance", "hire-date", "unit-test");
+            zms.validateUserAuthorityAttributes("elevated-clearance", "hire-date", "unit-test");
             fail();
         } catch (ResourceException ex) {
             assertTrue(ex.getMessage().contains("hire-date is not a valid user authority date attribute"));
@@ -19903,5 +19939,33 @@ public class ZMSImplTest {
                 eq(null),
                 eq(httpStatus),
                 eq(null));
+    }
+
+    @Test
+    public void testGetGroupWithAttributes() {
+
+        final String domainName = "put-domain-group1";
+        TopLevelDomain dom1 = createTopLevelDomainObject(domainName, "Test Domain1", "testOrg", adminUser);
+        zms.postTopLevelDomain(mockDomRsrcCtx, auditRef, dom1);
+
+        Group group1 = createGroupObject(domainName, "group1", "user.joe", "user.jane");
+        group1.setSelfServe(true);
+        zms.putGroup(mockDomRsrcCtx, domainName, "group1", auditRef, group1);
+
+        Group group1a = zms.getGroup(mockDomRsrcCtx, domainName, "group1", false, false);
+        assertNotNull(group1a);
+
+        assertEquals(group1a.getName(), domainName + ":group.group1");
+        List<GroupMember> members = group1a.getGroupMembers();
+        assertNotNull(members);
+        assertEquals(members.size(), 2);
+
+        List<String> checkList = new ArrayList<>();
+        checkList.add("user.joe");
+        checkList.add("user.jane");
+        checkGroupMember(checkList, members);
+        assertTrue(group1a.getSelfServe());
+
+        zms.deleteTopLevelDomain(mockDomRsrcCtx, domainName, auditRef);
     }
 }

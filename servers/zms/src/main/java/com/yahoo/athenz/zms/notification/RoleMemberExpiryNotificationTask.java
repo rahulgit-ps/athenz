@@ -45,7 +45,7 @@ public class RoleMemberExpiryNotificationTask implements NotificationTask {
 
     @Override
     public List<Notification> getNotifications() {
-        Map<String, DomainRoleMember> expiryMembers = dbService.getRoleExpiryMembers();
+        Map<String, DomainRoleMember> expiryMembers = dbService.getRoleExpiryMembers(1);
         if (expiryMembers == null || expiryMembers.isEmpty()) {
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("No expiry members available to send notifications");

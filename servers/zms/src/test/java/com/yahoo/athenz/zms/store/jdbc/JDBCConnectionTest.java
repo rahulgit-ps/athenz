@@ -7443,7 +7443,7 @@ public class JDBCConnectionTest {
                 .setPolicy(12).setPublicKey(13)
                 .setRole(14).setRoleMember(15)
                 .setService(16).setServiceHost(17)
-                .setSubdomain(18);
+                .setSubdomain(18).setGroup(19).setGroupMember(20);
 
         Mockito.doReturn(1).when(mockPrepStmt).executeUpdate();
         Mockito.when(mockResultSet.next()).thenReturn(true);
@@ -7463,6 +7463,8 @@ public class JDBCConnectionTest {
         Mockito.verify(mockPrepStmt, times(1)).setInt(8, 13);
         Mockito.verify(mockPrepStmt, times(1)).setInt(9, 11);
         Mockito.verify(mockPrepStmt, times(1)).setInt(10, 18);
+        Mockito.verify(mockPrepStmt, times(1)).setInt(11, 19);
+        Mockito.verify(mockPrepStmt, times(1)).setInt(12, 20);
         jdbcConn.close();
     }
     
@@ -7524,7 +7526,7 @@ public class JDBCConnectionTest {
                 .setPolicy(12).setPublicKey(13)
                 .setRole(14).setRoleMember(15)
                 .setService(16).setServiceHost(17)
-                .setSubdomain(18);
+                .setSubdomain(18).setGroup(19).setGroupMember(20);
 
         Mockito.doReturn(1).when(mockPrepStmt).executeUpdate();
         Mockito.when(mockResultSet.next()).thenReturn(true);
@@ -7543,7 +7545,9 @@ public class JDBCConnectionTest {
         Mockito.verify(mockPrepStmt, times(1)).setInt(7, 13);
         Mockito.verify(mockPrepStmt, times(1)).setInt(8, 11);
         Mockito.verify(mockPrepStmt, times(1)).setInt(9, 18);
-        Mockito.verify(mockPrepStmt, times(1)).setInt(10, 5); // domain id
+        Mockito.verify(mockPrepStmt, times(1)).setInt(10, 19);
+        Mockito.verify(mockPrepStmt, times(1)).setInt(11, 20);
+        Mockito.verify(mockPrepStmt, times(1)).setInt(12, 5); // domain id
         jdbcConn.close();
     }
     
@@ -9303,8 +9307,8 @@ public class JDBCConnectionTest {
                 .thenReturn(3); // 3 members updated
         long timestamp = System.currentTimeMillis();
         boolean result = isRoleExpire ?
-                jdbcConn.updateRoleMemberExpirationNotificationTimestamp("localhost", timestamp) :
-                jdbcConn.updateRoleMemberReviewNotificationTimestamp("localhost", timestamp);
+                jdbcConn.updateRoleMemberExpirationNotificationTimestamp("localhost", timestamp, 1) :
+                jdbcConn.updateRoleMemberReviewNotificationTimestamp("localhost", timestamp, 1);
         java.sql.Timestamp ts = new java.sql.Timestamp(timestamp);
         Mockito.verify(mockPrepStmt, times(1)).setTimestamp(1, ts);
         Mockito.verify(mockPrepStmt, times(1)).setString(2, "localhost");
@@ -9328,9 +9332,9 @@ public class JDBCConnectionTest {
                 .thenThrow(new SQLException("sql error"));
         try {
             if (isRoleExpire) {
-                jdbcConn.updateRoleMemberExpirationNotificationTimestamp("localhost", System.currentTimeMillis());
+                jdbcConn.updateRoleMemberExpirationNotificationTimestamp("localhost", System.currentTimeMillis(), 1);
             } else {
-                jdbcConn.updateRoleMemberReviewNotificationTimestamp("localhost", System.currentTimeMillis());
+                jdbcConn.updateRoleMemberReviewNotificationTimestamp("localhost", System.currentTimeMillis(), 1);
             }
             fail();
         } catch (RuntimeException ex) {

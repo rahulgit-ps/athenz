@@ -16,15 +16,16 @@
 package com.yahoo.athenz.zms;
 
 import com.wix.mysql.EmbeddedMysql;
+import com.wix.mysql.Sources;
 import com.wix.mysql.config.MysqldConfig;
 import com.yahoo.rdl.Timestamp;
 import com.yahoo.rdl.UUID;
 
+import java.io.File;
 import java.util.List;
 import java.util.function.Function;
 
 import static com.wix.mysql.EmbeddedMysql.anEmbeddedMysql;
-import static com.wix.mysql.ScriptResolver.classPathScript;
 import static com.wix.mysql.config.MysqldConfig.aMysqldConfig;
 import static com.wix.mysql.distribution.Version.v5_7_latest;
 
@@ -39,8 +40,9 @@ public class ZMSTestUtils {
                 .withUser(userName, password)
                 .build();
 
+        File sqlSchemaFile = new File("schema/zms_server.sql");
         return anEmbeddedMysql(config)
-                .addSchema("zms_server", classPathScript("schema/zms_server.sql"))
+                .addSchema("zms_server", Sources.fromFile(sqlSchemaFile))
                 .start();
     }
 

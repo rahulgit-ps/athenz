@@ -281,11 +281,11 @@ public class JDBCConnection implements ObjectStoreConnection {
             + "WHERE role_member.principal_id=? AND domain.domain_id=?;";
     private static final String SQL_GET_QUOTA = "SELECT * FROM quota WHERE domain_id=?;";
     private static final String SQL_INSERT_QUOTA = "INSERT INTO quota (domain_id, role, role_member, "
-            + "policy, assertion, service, service_host, public_key, entity, subdomain) "
-            + "VALUES (?,?,?,?,?,?,?,?,?,?);";
+            + "policy, assertion, service, service_host, public_key, entity, subdomain, principal_group, principal_group_member) "
+            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
     private static final String SQL_UPDATE_QUOTA = "UPDATE quota SET role=?, role_member=?, "
             + "policy=?, assertion=?, service=?, service_host=?, public_key=?, entity=?, "
-            + "subdomain=? WHERE domain_id=?;";
+            + "subdomain=?, principal_group=?, principal_group_member=?  WHERE domain_id=?;";
     private static final String SQL_DELETE_QUOTA = "DELETE FROM quota WHERE domain_id=?;";
 
     private static final String SQL_PENDING_ORG_AUDIT_ROLE_MEMBER_LIST = "SELECT do.name AS domain, ro.name AS role, "
@@ -326,13 +326,13 @@ public class JDBCConnection implements ObjectStoreConnection {
     private static final String SQL_GET_EXPIRED_PENDING_ROLE_MEMBERS = "SELECT d.name, r.name, p.name, prm.expiration, prm.review_reminder, prm.audit_ref, prm.req_time, prm.req_principal " +
             "FROM principal p JOIN pending_role_member prm " +
             "ON prm.principal_id=p.principal_id JOIN role r ON prm.role_id=r.role_id JOIN domain d ON d.domain_id=r.domain_id " +
-            "WHERE prm.req_time < (CURRENT_DATE - INTERVAL ? DAY);";
+            "WHERE prm.req_time < (CURRENT_TIME - INTERVAL ? DAY);";
 
     private static final String SQL_UPDATE_PENDING_ROLE_MEMBERS_NOTIFICATION_TIMESTAMP = "UPDATE pending_role_member SET last_notified_time=?, server=? " +
             "WHERE DAYOFWEEK(req_time)=DAYOFWEEK(?) AND (last_notified_time IS NULL || last_notified_time < (CURRENT_TIME - INTERVAL ? DAY));";
 
     private static final String SQL_UPDATE_ROLE_MEMBERS_EXPIRY_NOTIFICATION_TIMESTAMP = "UPDATE role_member SET last_notified_time=?, server=? " +
-            "WHERE expiration > CURRENT_TIME AND DATEDIFF(expiration, CURRENT_TIME) IN (0,1,7,14,21,28) AND (last_notified_time IS NULL || last_notified_time < (CURRENT_DATE - INTERVAL 1 DAY));";
+            "WHERE expiration > CURRENT_TIME AND DATEDIFF(expiration, CURRENT_TIME) IN (0,1,7,14,21,28) AND (last_notified_time IS NULL || last_notified_time < (CURRENT_TIME - INTERVAL ? DAY));";
     private static final String SQL_LIST_NOTIFY_TEMPORARY_ROLE_MEMBERS = "SELECT domain.name AS domain_name, role.name AS role_name, " +
             "principal.name AS principal_name, role_member.expiration, role_member.review_reminder FROM role_member " +
             "JOIN role ON role.role_id=role_member.role_id " +
@@ -341,7 +341,7 @@ public class JDBCConnection implements ObjectStoreConnection {
             "WHERE role_member.last_notified_time=? AND role_member.server=?;";
 
     private static final String SQL_UPDATE_ROLE_MEMBERS_REVIEW_NOTIFICATION_TIMESTAMP = "UPDATE role_member SET review_last_notified_time=?, review_server=? " +
-            "WHERE review_reminder > CURRENT_TIME AND DATEDIFF(review_reminder, CURRENT_TIME) IN (0,1,7,14,21,28) AND (review_last_notified_time IS NULL || review_last_notified_time < (CURRENT_DATE - INTERVAL 1 DAY));";
+            "WHERE review_reminder > CURRENT_TIME AND DATEDIFF(review_reminder, CURRENT_TIME) IN (0,1,7,14,21,28) AND (review_last_notified_time IS NULL || review_last_notified_time < (CURRENT_TIME - INTERVAL ? DAY));";
     private static final String SQL_LIST_NOTIFY_REVIEW_ROLE_MEMBERS = "SELECT domain.name AS domain_name, role.name AS role_name, " +
             "principal.name AS principal_name, role_member.expiration, role_member.review_reminder FROM role_member " +
             "JOIN role ON role.role_id=role_member.role_id " +
@@ -355,8 +355,91 @@ public class JDBCConnection implements ObjectStoreConnection {
             + "JOIN domain ON role.domain_id=domain.domain_id WHERE role.user_authority_filter!='' "
             + "OR role.user_authority_expiration!='' OR domain.user_authority_filter!='';";
 
+    private static final String SQL_GET_GROUP = "SELECT * FROM principal_group "
+            + "JOIN domain ON domain.domain_id=principal_group.domain_id "
+            + "WHERE domain.name=? AND principal_group.name=?;";
+    private static final String SQL_INSERT_GROUP = "INSERT INTO principal_group (name, domain_id, audit_enabled, self_serve,"
+            + " review_enabled, notify_roles, user_authority_filter, user_authority_expiration) "
+            + "VALUES (?,?,?,?,?,?,?,?);";
+    private static final String SQL_UPDATE_GROUP = "UPDATE principal_group SET audit_enabled=?, self_serve=?, "
+            + "review_enabled=?, notify_roles=?, "
+            + "user_authority_filter=?, user_authority_expiration=? WHERE group_id=?;";
+    private static final String SQL_GET_GROUP_ID = "SELECT group_id FROM principal_group WHERE domain_id=? AND name=?;";
+    private static final String SQL_DELETE_GROUP = "DELETE FROM principal_group WHERE domain_id=? AND name=?;";
+    private static final String SQL_UPDATE_GROUP_MOD_TIMESTAMP = "UPDATE principal_group "
+            + "SET modified=CURRENT_TIMESTAMP(3) WHERE group_id=?;";
+    private static final String SQL_COUNT_GROUP = "SELECT COUNT(*) FROM principal_group WHERE domain_id=?;";
+    private static final String SQL_GET_GROUP_MEMBER = "SELECT principal.principal_id, principal_group_member.expiration, "
+            + "principal_group_member.req_principal, principal_group_member.system_disabled FROM principal "
+            + "JOIN principal_group_member ON principal_group_member.principal_id=principal.principal_id "
+            + "JOIN principal_group ON principal_group.group_id=principal_group_member.group_id "
+            + "WHERE group.group_id=? AND principal.name=?;";
+    private static final String SQL_GET_TEMP_GROUP_MEMBER = "SELECT principal.principal_id, group_member.expiration, "
+            + "group_member.req_principal, group_member.system_disabled FROM principal "
+            + "JOIN group_member ON group_member.principal_id=principal.principal_id "
+            + "JOIN group ON group.group_id=group_member.group_id "
+            + "WHERE group.group_id=? AND principal.name=? AND group_member.expiration=?;";
+    private static final String SQL_GET_PENDING_GROUP_MEMBER = "SELECT principal.principal_id, "
+            + "pending_group_member.expiration, pending_group_member.req_principal FROM principal "
+            + "JOIN pending_group_member ON pending_group_member.principal_id=principal.principal_id "
+            + "JOIN group ON group.group_id=pending_group_member.group_id "
+            + "WHERE group.group_id=? AND principal.name=?;";
+    private static final String SQL_GET_TEMP_PENDING_GROUP_MEMBER = "SELECT principal.principal_id, "
+            + "pending_group_member.expiration, pending_group_member.req_principal FROM principal "
+            + "JOIN pending_group_member ON pending_group_member.principal_id=principal.principal_id "
+            + "JOIN group ON group.group_id=pending_group_member.group_id "
+            + "WHERE group.group_id=? AND principal.name=? AND pending_group_member.expiration=?;";
+    private static final String SQL_LIST_GROUP_AUDIT_LOGS = "SELECT * FROM group_audit_log WHERE group_id=?;";
+    private static final String SQL_UPDATE_GROUP_REVIEW_TIMESTAMP = "UPDATE principal_group SET last_reviewed_time=CURRENT_TIMESTAMP(3) WHERE group_id=?;";
+    private static final String SQL_LIST_GROUPS_WITH_RESTRICTIONS = "SELECT domain.name as domain_name, "
+            + "principal_group.name as group_name, domain.user_authority_filter as domain_user_authority_filter FROM principal_group "
+            + "JOIN domain ON role.domain_id=domain.domain_id WHERE principal_group.user_authority_filter!='' "
+            + "OR principal_group.user_authority_expiration!='' OR domain.user_authority_filter!='';";
+    private static final String SQL_LIST_GROUP_MEMBERS = "SELECT principal.name, principal_group_member.expiration, "
+            + "principal_group_member.active, principal_group_member.audit_ref, principal_group_member.system_disabled FROM principal "
+            + "JOIN principal_group_member ON principal_group_member.principal_id=principal.principal_id "
+            + "JOIN principal_group ON principal_group.group_id=principal_group_member.group_id WHERE principal_group.group_id=?;";
+    private static final String SQL_LIST_PENDING_GROUP_MEMBERS = "SELECT principal.name, pending_group_member.expiration, "
+            + "pending_group_member.req_time, pending_group_member.audit_ref FROM principal "
+            + "JOIN pending_group_member ON pending_group_member.principal_id=principal.principal_id "
+            + "JOIN principal_group ON principal_group.group_id=pending_group_member.group_id WHERE principal_group.group_id=?;";
+    private static final String SQL_COUNT_GROUP_MEMBERS = "SELECT COUNT(*) FROM principal_group_member WHERE group_id=?;";
+    private static final String SQL_STD_GROUP_MEMBER_EXISTS = "SELECT principal_id FROM principal_group_member WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_PENDING_GROUP_MEMBER_EXISTS = "SELECT principal_id FROM pending_principal_group_member WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_UPDATE_GROUP_MEMBER = "UPDATE principal_group_member "
+            + "SET expiration=?, active=?, audit_ref=?, req_principal=? WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_UPDATE_GROUP_MEMBER_DISABLED_STATE = "UPDATE principal_group_member "
+            + "SET system_disabled=?, audit_ref=?, req_principal=? WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_UPDATE_PENDING_GROUP_MEMBER = "UPDATE pending_principal_group_member "
+            + "SET expiration=?, audit_ref=?, req_time=CURRENT_TIMESTAMP(3), req_principal=? WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_INSERT_GROUP_MEMBER = "INSERT INTO principal_group_member "
+            + "(group_id, principal_id, expiration, active, audit_ref, req_principal) VALUES (?,?,?,?,?,?);";
+    private static final String SQL_INSERT_PENDING_GROUP_MEMBER = "INSERT INTO pending_principal_group_member "
+            + "(group_id, principal_id, expiration, audit_ref, req_principal) VALUES (?,?,?,?,?);";
+    private static final String SQL_DELETE_GROUP_MEMBER = "DELETE FROM principal_group_member WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_DELETE_PENDING_GROUP_MEMBER = "DELETE FROM pending_principal_group_member WHERE group_id=? AND principal_id=?;";
+    private static final String SQL_INSERT_GROUP_AUDIT_LOG = "INSERT INTO principal_group_audit_log "
+            + "(group_id, admin, member, action, audit_ref) VALUES (?,?,?,?,?);";
+    private static final String SQL_GET_PRINCIPAL_GROUPS = "SELECT principal_group.name, domain.name, principal_group_member.expiration, "
+            + "principal_group_member.system_disabled FROM principal_group_member "
+            + "JOIN principal_group ON principal_group.group_id=principal_group_member.group_id "
+            + "JOIN domain ON domain.domain_id=principal_group.domain_id "
+            + "WHERE principal_group_member.principal_id=?;";
+    private static final String SQL_GET_PRINCIPAL_GROUPS_DOMAIN = "SELECT principal_group.name, domain.name, principal_group_member.expiration, "
+            + "principal_group_member.system_disabled FROM principal_group_member "
+            + "JOIN principal_group ON principal_group.group_id=principal_group_member.group_id "
+            + "JOIN domain ON domain.domain_id=principal_group.domain_id "
+            + "WHERE principal_group_member.principal_id=? AND domain.domain_id=?;";
+    private static final String SQL_GET_DOMAIN_GROUPS = "SELECT * FROM principal_group WHERE domain_id=?;";
+    private static final String SQL_GET_DOMAIN_GROUP_MEMBERS = "SELECT principal_group.name, principal.name, "
+            + "principal_group_member.expiration, principal_group_member.system_disabled FROM principal "
+            + "JOIN principal_group_member ON principal_group_member.principal_id=principal.principal_id "
+            + "JOIN principal_group ON principal_group.role_id=principal_group_member.role_id "
+            + "WHERE principal_group.domain_id=?;";
+
     private static final String CACHE_DOMAIN    = "d:";
     private static final String CACHE_ROLE      = "r:";
+    private static final String CACHE_GROUP     = "g:";
     private static final String CACHE_POLICY    = "p:";
     private static final String CACHE_SERVICE   = "s:";
     private static final String CACHE_PRINCIPAL = "u:";
@@ -1040,7 +1123,44 @@ public class JDBCConnection implements ObjectStoreConnection {
         
         return roleId;
     }
-    
+
+    int getGroupId(int domainId, final String groupName) {
+
+        final String caller = "getGroupId";
+
+        // first check to see if our cache contains this value
+        // otherwise we'll contact the MySQL Server
+
+        final String cacheKey = CACHE_GROUP + domainId + '.' + groupName;
+
+        Integer value = objectMap.get(cacheKey);
+        if (value != null) {
+            return value;
+        }
+
+        int groupId = 0;
+        try (PreparedStatement ps = con.prepareStatement(SQL_GET_GROUP_ID)) {
+            ps.setInt(1, domainId);
+            ps.setString(2, groupName);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    groupId = rs.getInt(1);
+                }
+            }
+        } catch (SQLException ex) {
+            LOG.error("unable to get role id for name: " + groupName +
+                    " error code: " + ex.getErrorCode() + " msg: " + ex.getMessage());
+        }
+
+        // before returning the value update our cache
+
+        if (groupId != 0) {
+            objectMap.put(cacheKey, groupId);
+        }
+
+        return groupId;
+    }
+
     int getServiceId(int domainId, String serviceName) {
         
         final String caller = "getServiceId";
@@ -1476,6 +1596,12 @@ public class JDBCConnection implements ObjectStoreConnection {
         String roleMember1Name = roleMember1.getMemberName().toLowerCase();
         String roleMember2Name = roleMember2.getMemberName().toLowerCase();
         return roleMember1Name.compareTo(roleMember2Name);
+    };
+
+    public static Comparator<GroupMember> GroupMemberComparator = (groupMember1, groupMember2) -> {
+        String groupMember1Name = groupMember1.getMemberName().toLowerCase();
+        String groupMember2Name = groupMember1.getMemberName().toLowerCase();
+        return groupMember1Name.compareTo(groupMember2Name);
     };
 
     void getStdRoleMembers(int roleId, List<RoleMember> members, final String caller) {
@@ -3075,7 +3201,55 @@ public class JDBCConnection implements ObjectStoreConnection {
         
         athenzDomain.getRoles().addAll(roleMap.values());
     }
-    
+
+    void getAthenzDomainGroups(String domainName, int domainId, AthenzDomain athenzDomain) {
+
+        final String caller = "getAthenzDomain";
+        Map<String, Group> groupMap = new HashMap<>();
+        try (PreparedStatement ps = con.prepareStatement(SQL_GET_DOMAIN_GROUPS)) {
+            ps.setInt(1, domainId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    final String groupName = rs.getString(ZMSConsts.DB_COLUMN_NAME);
+                    Group group = retrieveGroup(rs, domainName, groupName);
+                    groupMap.put(groupName, group);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_GET_DOMAIN_GROUP_MEMBERS)) {
+            ps.setInt(1, domainId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    String groupName = rs.getString(1);
+                    Group group = groupMap.get(groupName);
+                    if (group == null) {
+                        continue;
+                    }
+                    List<GroupMember> members = group.getGroupMembers();
+                    if (members == null) {
+                        members = new ArrayList<>();
+                        group.setGroupMembers(members);
+                    }
+                    GroupMember groupMember = new GroupMember();
+                    groupMember.setMemberName(rs.getString(2));
+                    java.sql.Timestamp expiration = rs.getTimestamp(3);
+                    if (expiration != null) {
+                        groupMember.setExpiration(Timestamp.fromMillis(expiration.getTime()));
+                    }
+                    groupMember.setSystemDisabled(nullIfDefaultValue(rs.getInt(4), 0));
+                    members.add(groupMember);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        athenzDomain.getGroups().addAll(groupMap.values());
+    }
+
     void getAthenzDomainPolicies(String domainName, int domainId, AthenzDomain athenzDomain) {
 
         final String caller = "getAthenzDomain";
@@ -3215,8 +3389,9 @@ public class JDBCConnection implements ObjectStoreConnection {
         if (domainId == 0) {
             throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
         }
-        
+
         getAthenzDomainRoles(domainName, domainId, athenzDomain);
+        getAthenzDomainGroups(domainName, domainId, athenzDomain);
         getAthenzDomainPolicies(domainName, domainId, athenzDomain);
         getAthenzDomainServices(domainName, domainId, athenzDomain);
         
@@ -3680,6 +3855,8 @@ public class JDBCConnection implements ObjectStoreConnection {
                     quota.setPublicKey(rs.getInt(ZMSConsts.DB_COLUMN_PUBLIC_KEY));
                     quota.setEntity(rs.getInt(ZMSConsts.DB_COLUMN_ENTITY));
                     quota.setSubdomain(rs.getInt(ZMSConsts.DB_COLUMN_SUBDOMAIN));
+                    quota.setGroup(rs.getInt(ZMSConsts.DB_COLUMN_PRINCIPAL_GROUP));
+                    quota.setGroupMember(rs.getInt(ZMSConsts.DB_COLUMN_PRINCIPAL_GROUP_MEMBER));
                     quota.setModified(Timestamp.fromMillis(rs.getTimestamp(ZMSConsts.DB_COLUMN_MODIFIED).getTime()));
                 }
             }
@@ -3710,6 +3887,8 @@ public class JDBCConnection implements ObjectStoreConnection {
             ps.setInt(8, quota.getPublicKey());
             ps.setInt(9, quota.getEntity());
             ps.setInt(10, quota.getSubdomain());
+            ps.setInt(11, quota.getGroup());
+            ps.setInt(12, quota.getGroupMember());
             affectedRows = executeUpdate(ps, caller);
         } catch (SQLException ex) {
             throw sqlError(ex, caller);
@@ -3736,8 +3915,10 @@ public class JDBCConnection implements ObjectStoreConnection {
             ps.setInt(6, quota.getServiceHost());
             ps.setInt(7, quota.getPublicKey());
             ps.setInt(8, quota.getEntity());
-            ps.setInt(9, quota.getSubdomain()); 
-            ps.setInt(10, domainId);
+            ps.setInt(9, quota.getSubdomain());
+            ps.setInt(10, quota.getGroup());
+            ps.setInt(11, quota.getGroupMember());
+            ps.setInt(12, domainId);
             affectedRows = executeUpdate(ps, caller);
         } catch (SQLException ex) {
             throw sqlError(ex, caller);
@@ -4177,10 +4358,11 @@ public class JDBCConnection implements ObjectStoreConnection {
     }
 
     @Override
-    public boolean updateRoleMemberExpirationNotificationTimestamp(String server, long timestamp) {
+    public boolean updateRoleMemberExpirationNotificationTimestamp(String server, long timestamp, int delayDays) {
         return updateRoleMemberNotificationTimestamp(
                 server,
                 timestamp,
+                delayDays,
                 SQL_UPDATE_ROLE_MEMBERS_EXPIRY_NOTIFICATION_TIMESTAMP,
                 "updateTemporaryRoleMembersNotificationTimestamp");
     }
@@ -4191,19 +4373,22 @@ public class JDBCConnection implements ObjectStoreConnection {
     }
 
     @Override
-    public boolean updateRoleMemberReviewNotificationTimestamp(String server, long timestamp) {
+    public boolean updateRoleMemberReviewNotificationTimestamp(String server, long timestamp, int delayDays) {
         return updateRoleMemberNotificationTimestamp(
                 server,
                 timestamp,
+                delayDays,
                 SQL_UPDATE_ROLE_MEMBERS_REVIEW_NOTIFICATION_TIMESTAMP,
                 "updateReviewRoleMembersNotificationTimestamp");
     }
 
-    private boolean updateRoleMemberNotificationTimestamp(String server, long timestamp, String query, String caller) {
+    private boolean updateRoleMemberNotificationTimestamp(final String server, long timestamp, int delayDays,
+                                                          final String query, final String caller) {
         int affectedRows;
         try (PreparedStatement ps = con.prepareStatement(query)) {
             ps.setTimestamp(1, new java.sql.Timestamp(timestamp));
             ps.setString(2, server);
+            ps.setInt(3, delayDays);
 
             affectedRows = executeUpdate(ps, caller);
         } catch (SQLException ex) {
@@ -4305,6 +4490,827 @@ public class JDBCConnection implements ObjectStoreConnection {
         return roles;
     }
 
+    Group retrieveGroup(ResultSet rs, final String domainName, final String groupName) throws SQLException {
+        Group group = new Group().setName(ZMSUtils.groupResourceName(domainName, groupName))
+                .setModified(Timestamp.fromMillis(rs.getTimestamp(ZMSConsts.DB_COLUMN_MODIFIED).getTime()))
+                .setAuditEnabled(nullIfDefaultValue(rs.getBoolean(ZMSConsts.DB_COLUMN_AUDIT_ENABLED), false))
+                .setSelfServe(nullIfDefaultValue(rs.getBoolean(ZMSConsts.DB_COLUMN_SELF_SERVE), false))
+                .setReviewEnabled(nullIfDefaultValue(rs.getBoolean(ZMSConsts.DB_COLUMN_REVIEW_ENABLED), false))
+                .setNotifyRoles(saveValue(rs.getString(ZMSConsts.DB_COLUMN_NOTIFY_ROLES)))
+                .setUserAuthorityFilter(saveValue(rs.getString(ZMSConsts.DB_COLUMN_USER_AUTHORITY_FILTER)))
+                .setUserAuthorityExpiration(saveValue(rs.getString(ZMSConsts.DB_COLUMN_USER_AUTHORITY_EXPIRATION)));
+        java.sql.Timestamp lastReviewedTime = rs.getTimestamp(ZMSConsts.DB_COLUMN_LAST_REVIEWED_TIME);
+        if (lastReviewedTime != null) {
+            group.setLastReviewedDate(Timestamp.fromMillis(lastReviewedTime.getTime()));
+        }
+        return group;
+    }
+
+    @Override
+    public Group getGroup(String domainName, String groupName) {
+        final String caller = "getGroup";
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_GET_GROUP)) {
+            ps.setString(1, domainName);
+            ps.setString(2, groupName);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    return retrieveGroup(rs, domainName, groupName);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return null;
+    }
+
+    @Override
+    public boolean insertGroup(String domainName, Group group) {
+        int affectedRows;
+        final String caller = "insertGroup";
+
+        String groupName = ZMSUtils.extractGroupName(domainName, group.getName());
+        if (groupName == null) {
+            throw requestError(caller, "domain name mismatch: " + domainName +
+                    " insert group name: " + group.getName());
+        }
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        try (PreparedStatement ps = con.prepareStatement(SQL_INSERT_GROUP)) {
+            ps.setString(1, groupName);
+            ps.setInt(2, domainId);
+            ps.setBoolean(3, processInsertValue(group.getAuditEnabled(), false));
+            ps.setBoolean(4, processInsertValue(group.getSelfServe(), false));
+            ps.setBoolean(5, processInsertValue(group.getReviewEnabled(), false));
+            ps.setString(6, processInsertValue(group.getNotifyRoles()));
+            ps.setString(7, processInsertValue(group.getUserAuthorityFilter()));
+            ps.setString(8, processInsertValue(group.getUserAuthorityExpiration()));
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return (affectedRows > 0);
+    }
+
+    @Override
+    public boolean updateGroup(String domainName, Group group) {
+        int affectedRows;
+        final String caller = "updateGroup";
+
+        String groupName = ZMSUtils.extractGroupName(domainName, group.getName());
+        if (groupName == null) {
+            throw requestError(caller, "domain name mismatch: " + domainName +
+                    " update group name: " + group.getName());
+        }
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_GROUP)) {
+            ps.setBoolean(1, processInsertValue(group.getAuditEnabled(), false));
+            ps.setBoolean(2, processInsertValue(group.getSelfServe(), false));
+            ps.setBoolean(3, processInsertValue(group.getReviewEnabled(), false));
+            ps.setString(4, processInsertValue(group.getNotifyRoles()));
+            ps.setString(5, processInsertValue(group.getUserAuthorityFilter()));
+            ps.setString(6, processInsertValue(group.getUserAuthorityExpiration()));
+            ps.setInt(7, groupId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        return (affectedRows > 0);
+    }
+
+    @Override
+    public boolean deleteGroup(String domainName, String groupName) {
+
+        final String caller = "deleteGroup";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int affectedRows;
+        try (PreparedStatement ps = con.prepareStatement(SQL_DELETE_GROUP)) {
+            ps.setInt(1, domainId);
+            ps.setString(2, groupName);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return (affectedRows > 0);
+    }
+
+    @Override
+    public boolean updateGroupModTimestamp(String domainName, String groupName) {
+        int affectedRows;
+        final String caller = "updateGroupModTimestamp";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_GROUP_MOD_TIMESTAMP)) {
+            ps.setInt(1, groupId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return (affectedRows > 0);
+    }
+
+    @Override
+    public int countGroups(String domainName) {
+        final String caller = "countGroups";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int count = 0;
+        try (PreparedStatement ps = con.prepareStatement(SQL_COUNT_GROUP)) {
+            ps.setInt(1, domainId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    count = rs.getInt(1);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return count;
+    }
+
+    @Override
+    public List<GroupAuditLog> listGroupAuditLogs(String domainName, String groupName) {
+
+        final String caller = "listGroupAuditLogs";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        List<GroupAuditLog> logs = new ArrayList<>();
+        try (PreparedStatement ps = con.prepareStatement(SQL_LIST_GROUP_AUDIT_LOGS)) {
+            ps.setInt(1, groupId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    GroupAuditLog log = new GroupAuditLog();
+                    log.setAction(rs.getString(ZMSConsts.DB_COLUMN_ACTION));
+                    log.setMember(rs.getString(ZMSConsts.DB_COLUMN_MEMBER));
+                    log.setAdmin(rs.getString(ZMSConsts.DB_COLUMN_ADMIN));
+                    log.setAuditRef(saveValue(rs.getString(ZMSConsts.DB_COLUMN_AUDIT_REF)));
+                    log.setCreated(Timestamp.fromMillis(rs.getTimestamp(ZMSConsts.DB_COLUMN_CREATED).getTime()));
+                    logs.add(log);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return logs;
+    }
+
+    @Override
+    public boolean updateGroupReviewTimestamp(String domainName, String groupName) {
+        int affectedRows;
+        final String caller = "updateGroupReviewTimestamp";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_GROUP_REVIEW_TIMESTAMP)) {
+            ps.setInt(1, groupId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return (affectedRows > 0);
+    }
+
+    void getStdGroupMembers(int groupId, List<GroupMember> members, final String caller) {
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_LIST_GROUP_MEMBERS)) {
+            ps.setInt(1, groupId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    GroupMember groupMember = new GroupMember();
+                    groupMember.setMemberName(rs.getString(1));
+                    java.sql.Timestamp expiration = rs.getTimestamp(2);
+                    if (expiration != null) {
+                        groupMember.setExpiration(Timestamp.fromMillis(expiration.getTime()));
+                    }
+                    groupMember.setActive(nullIfDefaultValue(rs.getBoolean(3), true));
+                    groupMember.setAuditRef(rs.getString(4));
+                    groupMember.setSystemDisabled(nullIfDefaultValue(rs.getInt(5), 0));
+                    groupMember.setApproved(true);
+                    members.add(groupMember);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+    }
+
+    void getPendingGroupMembers(int groupId, List<GroupMember> members, final String caller) {
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_LIST_PENDING_GROUP_MEMBERS)) {
+            ps.setInt(1, groupId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    GroupMember groupMember = new GroupMember();
+                    groupMember.setMemberName(rs.getString(1));
+                    java.sql.Timestamp timestamp = rs.getTimestamp(2);
+                    if (timestamp != null) {
+                        groupMember.setExpiration(Timestamp.fromMillis(timestamp.getTime()));
+                    }
+                    timestamp = rs.getTimestamp(3);
+                    if (timestamp != null) {
+                        groupMember.setRequestTime(Timestamp.fromMillis(timestamp.getTime()));
+                    }
+                    groupMember.setAuditRef(rs.getString(4));
+                    groupMember.setActive(false);
+                    groupMember.setApproved(false);
+                    members.add(groupMember);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+    }
+
+    @Override
+    public List<GroupMember> listGroupMembers(String domainName, String groupName, Boolean pending) {
+        final String caller = "listGroupMembers";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+
+        // first get our standard group members
+
+        List<GroupMember> members = new ArrayList<>();
+        getStdGroupMembers(groupId, members, caller);
+
+        // if requested, include pending members as well
+
+        if (pending == Boolean.TRUE) {
+            getPendingGroupMembers(groupId, members, caller);
+        }
+
+        members.sort(GroupMemberComparator);
+        return members;
+    }
+
+    @Override
+    public int countGroupMembers(String domainName, String groupName) {
+        final String caller = "countGroupMembers";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        int count = 0;
+        try (PreparedStatement ps = con.prepareStatement(SQL_COUNT_GROUP_MEMBERS)) {
+            ps.setInt(1, groupId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    count = rs.getInt(1);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return count;
+    }
+
+    boolean getGroupMembership(final String query, int groupId, final String member, long expiration,
+                               GroupMembership membership, boolean disabledFlagCheck, final String caller) {
+
+        try (PreparedStatement ps = con.prepareStatement(query)) {
+            ps.setInt(1, groupId);
+            ps.setString(2, member);
+            if (expiration != 0) {
+                ps.setTimestamp(3, new java.sql.Timestamp(expiration));
+            }
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    membership.setIsMember(true);
+                    java.sql.Timestamp expiry = rs.getTimestamp(ZMSConsts.DB_COLUMN_EXPIRATION);
+                    if (expiry != null) {
+                        membership.setExpiration(Timestamp.fromMillis(expiry.getTime()));
+                    }
+                    membership.setRequestPrincipal(rs.getString(ZMSConsts.DB_COLUMN_REQ_PRINCIPAL));
+                    if (disabledFlagCheck) {
+                        membership.setSystemDisabled(nullIfDefaultValue(rs.getInt(ZMSConsts.DB_COLUMN_SYSTEM_DISABLED), 0));
+                    }
+                    return true;
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return false;
+    }
+
+    @Override
+    public GroupMembership getGroupMember(String domainName, String groupName, String member, long expiration, boolean pending) {
+
+        final String caller = "getGroupMember";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+
+        GroupMembership membership = new GroupMembership()
+                .setMemberName(member)
+                .setGroupName(ZMSUtils.groupResourceName(domainName, groupName))
+                .setIsMember(false);
+
+        // first we're going to check if we have a standard user with the given
+        // details before checking for pending unless we're specifically asking
+        // for pending member only in which case we'll skip the first check
+
+        if (!pending) {
+            String query = expiration == 0 ? SQL_GET_GROUP_MEMBER : SQL_GET_TEMP_GROUP_MEMBER;
+            if (getGroupMembership(query, groupId, member, expiration, membership, true, caller)) {
+                membership.setApproved(true);
+            }
+        }
+
+        if (!membership.getIsMember()) {
+            String query = expiration == 0 ? SQL_GET_PENDING_GROUP_MEMBER : SQL_GET_TEMP_PENDING_GROUP_MEMBER;
+            if (getGroupMembership(query, groupId, member, expiration, membership, false, caller)) {
+                membership.setApproved(false);
+            }
+        }
+
+        return membership;
+    }
+
+    boolean groupMemberExists(int groupId, int principalId, boolean pending, final String caller) {
+
+        String statement = pending ? SQL_PENDING_GROUP_MEMBER_EXISTS : SQL_STD_GROUP_MEMBER_EXISTS;
+        try (PreparedStatement ps = con.prepareStatement(statement)) {
+            ps.setInt(1, groupId);
+            ps.setInt(2, principalId);
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                if (rs.next()) {
+                    return true;
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return false;
+    }
+
+    boolean insertGroupAuditLog(int groupId, String admin, String member,
+                               String action, String auditRef) {
+
+        int affectedRows;
+        final String caller = "insertGroupAuditEntry";
+
+        try (PreparedStatement ps = con.prepareStatement(SQL_INSERT_GROUP_AUDIT_LOG)) {
+            ps.setInt(1, groupId);
+            ps.setString(2, processInsertValue(admin));
+            ps.setString(3, member);
+            ps.setString(4, action);
+            ps.setString(5, processInsertValue(auditRef));
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        return (affectedRows > 0);
+    }
+
+    boolean insertPendingGroupMember(int groupId, int principalId, GroupMember groupMember,
+                                    final String admin, final String auditRef, boolean groupMemberExists, final String caller) {
+
+        java.sql.Timestamp expiration = null;
+        if (groupMember.getExpiration() != null) {
+            expiration = new java.sql.Timestamp(groupMember.getExpiration().toDate().getTime());
+        }
+
+        int affectedRows;
+        if (groupMemberExists) {
+
+            try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_PENDING_GROUP_MEMBER)) {
+                ps.setTimestamp(1, expiration);
+                ps.setString(2, processInsertValue(auditRef));
+                ps.setString(3, processInsertValue(admin));
+                ps.setInt(4, groupId);
+                ps.setInt(5, principalId);
+                affectedRows = executeUpdate(ps, caller);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+
+        } else {
+
+            try (PreparedStatement ps = con.prepareStatement(SQL_INSERT_PENDING_GROUP_MEMBER)) {
+                ps.setInt(1, groupId);
+                ps.setInt(2, principalId);
+                ps.setTimestamp(3, expiration);
+                ps.setString(4, processInsertValue(auditRef));
+                ps.setString(5, processInsertValue(admin));
+                affectedRows = executeUpdate(ps, caller);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+        }
+
+        return (affectedRows > 0);
+    }
+
+    boolean insertStandardGroupMember(int groupId, int principalId, GroupMember groupMember,
+                                     final String admin, final String principal, final String auditRef,
+                                     boolean groupMemberExists, boolean approveRequest, final String caller) {
+
+        java.sql.Timestamp expiration = null;
+        if (groupMember.getExpiration() != null) {
+            expiration = new java.sql.Timestamp(groupMember.getExpiration().toDate().getTime());
+        }
+
+        boolean result;
+        String auditOperation;
+
+        if (groupMemberExists) {
+
+            try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_GROUP_MEMBER)) {
+                ps.setTimestamp(1, expiration);
+                ps.setBoolean(2, processInsertValue(groupMember.getActive(), true));
+                ps.setString(3, processInsertValue(auditRef));
+                ps.setString(4, processInsertValue(admin));
+                ps.setInt(5, groupId);
+                ps.setInt(6, principalId);
+                executeUpdate(ps, caller);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+            auditOperation = approveRequest ? "APPROVE" : "UPDATE";
+            result = true;
+
+        } else {
+
+            int affectedRows;
+            try (PreparedStatement ps = con.prepareStatement(SQL_INSERT_GROUP_MEMBER)) {
+                ps.setInt(1, groupId);
+                ps.setInt(2, principalId);
+                ps.setTimestamp(3, expiration);
+                ps.setBoolean(4, processInsertValue(groupMember.getActive(), true));
+                ps.setString(5, processInsertValue(auditRef));
+                ps.setString(6, processInsertValue(admin));
+                affectedRows = executeUpdate(ps, caller);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+
+            auditOperation = approveRequest ? "APPROVE" : "ADD";
+            result = (affectedRows > 0);
+        }
+
+        // add audit log entry for this change if the operation was successful
+        // add return the result of the audit log insert operation
+
+        if (result) {
+            result = insertGroupAuditLog(groupId, admin, principal, auditOperation, auditRef);
+        }
+        return result;
+    }
+
+    @Override
+    public boolean insertGroupMember(String domainName, String groupName, GroupMember groupMember,
+                                     String admin, String auditRef) {
+
+        final String caller = "insertGroupMember";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        String principal = groupMember.getMemberName();
+        if (!validatePrincipalDomain(principal)) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, principal);
+        }
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            principalId = insertPrincipal(principal);
+            if (principalId == 0) {
+                throw internalServerError(caller, "Unable to insert principal: " + principal);
+            }
+        }
+
+        // need to check if entry already exists
+
+        boolean pendingRequest = (groupMember.getApproved() == Boolean.FALSE);
+        boolean groupMemberExists = groupMemberExists(groupId, principalId, pendingRequest, caller);
+
+        // process the request based on the type of the request
+        // either pending request or standard insert
+
+        boolean result;
+        if (pendingRequest) {
+            result = insertPendingGroupMember(groupId, principalId, groupMember, admin,
+                    auditRef, groupMemberExists, caller);
+        } else {
+            result = insertStandardGroupMember(groupId, principalId, groupMember, admin,
+                    principal, auditRef, groupMemberExists, false, caller);
+        }
+        return result;
+    }
+
+    @Override
+    public boolean deleteGroupMember(String domainName, String groupName, String principal, String admin, String auditRef) {
+
+        final String caller = "deleteGroupMember";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+        int affectedRows;
+        try (PreparedStatement ps = con.prepareStatement(SQL_DELETE_GROUP_MEMBER)) {
+            ps.setInt(1, groupId);
+            ps.setInt(2, principalId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        boolean result = (affectedRows > 0);
+
+        // add audit log entry for this change if the delete was successful
+        // add return the result of the audit log insert operation
+
+        if (result) {
+            result = insertGroupAuditLog(groupId, admin, principal, "DELETE", auditRef);
+        }
+
+        return result;
+    }
+
+    @Override
+    public boolean updateGroupMemberDisabledState(String domainName, String groupName, String principal, String admin,
+                                                  int disabledState, String auditRef) {
+
+        final String caller = "updateGroupMemberDisabledState";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+
+        int affectedRows;
+        try (PreparedStatement ps = con.prepareStatement(SQL_UPDATE_GROUP_MEMBER_DISABLED_STATE)) {
+            ps.setInt(1, disabledState);
+            ps.setString(2, processInsertValue(auditRef));
+            ps.setString(3, processInsertValue(admin));
+            ps.setInt(4, groupId);
+            ps.setInt(5, principalId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        boolean result = (affectedRows > 0);
+
+        // add audit log entry for this change if the disable was successful
+        // add return the result of the audit log insert operation
+
+        if (result) {
+            final String operation = disabledState == 0 ? "ENABLE" : "DISABLE";
+            result = insertGroupAuditLog(groupId, admin, principal, operation, auditRef);
+        }
+
+        return result;
+    }
+
+    @Override
+    public boolean deletePendingGroupMember(String domainName, String groupName, String principal,
+                                           String admin, String auditRef) {
+
+        final String caller = "deletePendingGroupMember";
+
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+        return executeDeletePendingGroupMember(groupId, principalId, admin, principal, auditRef, true, caller);
+    }
+
+    public boolean executeDeletePendingGroupMember(int groupId, int principalId, final String admin,
+                                                  final String principal, final String auditRef, boolean auditLog, final String caller) {
+
+        int affectedRows;
+        try (PreparedStatement ps = con.prepareStatement(SQL_DELETE_PENDING_GROUP_MEMBER)) {
+            ps.setInt(1, groupId);
+            ps.setInt(2, principalId);
+            affectedRows = executeUpdate(ps, caller);
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+        boolean result = (affectedRows > 0);
+        if (result && auditLog) {
+            result = insertGroupAuditLog(groupId, admin, principal, "REJECT", auditRef);
+        }
+        return result;
+    }
+
+    @Override
+    public boolean confirmGroupMember(String domainName, String groupName, GroupMember groupMember,
+                                      String admin, String auditRef) {
+
+        final String caller = "confirmGroupMember";
+
+        String principal = groupMember.getMemberName();
+        int domainId = getDomainId(domainName);
+        if (domainId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+        }
+        int groupId = getGroupId(domainId, groupName);
+        if (groupId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_GROUP, ZMSUtils.groupResourceName(domainName, groupName));
+        }
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+
+        // need to check if the pending entry already exists
+        // before doing any work
+
+        boolean groupMemberExists = groupMemberExists(groupId, principalId, true, caller);
+        if (!groupMemberExists) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+
+        boolean result;
+        if (groupMember.getApproved() == Boolean.TRUE) {
+            groupMemberExists = groupMemberExists(groupId, principalId, false, caller);
+            result = insertStandardGroupMember(groupId, principalId, groupMember, admin,
+                    principal, auditRef, groupMemberExists, true, caller);
+
+            if (result) {
+                executeDeletePendingGroupMember(groupId, principalId, admin, principal,
+                        auditRef, false, caller);
+            }
+        } else {
+            result = executeDeletePendingGroupMember(groupId, principalId, admin,
+                    principal, auditRef, true, caller);
+        }
+
+        return result;
+    }
+
+    private DomainGroupMember getGroupsForPrincipal(String caller, DomainGroupMember domainGroupMember, PreparedStatement ps) throws SQLException {
+
+        try (ResultSet rs = executeQuery(ps, caller)) {
+            while (rs.next()) {
+                final String groupName = rs.getString(1);
+                final String domain = rs.getString(2);
+
+                GroupMember groupMember = new GroupMember();
+                groupMember.setGroupName(groupName);
+                groupMember.setDomainName(domain);
+
+                java.sql.Timestamp expiration = rs.getTimestamp(3);
+                if (expiration != null) {
+                    groupMember.setExpiration(Timestamp.fromMillis(expiration.getTime()));
+                }
+                groupMember.setSystemDisabled(nullIfDefaultValue(rs.getInt(4), 0));
+
+                domainGroupMember.getMemberGroups().add(groupMember);
+            }
+
+            return domainGroupMember;
+        }
+    }
+
+    @Override
+    public DomainGroupMember getPrincipalGroups(String principal, String domainName) {
+
+        final String caller = "getPrincipalGroups";
+
+        int principalId = getPrincipalId(principal);
+        if (principalId == 0) {
+            throw notFoundError(caller, ZMSConsts.OBJECT_PRINCIPAL, principal);
+        }
+
+        DomainGroupMember domainGroupMember = new DomainGroupMember();
+        domainGroupMember.setMemberGroups(new ArrayList<>());
+        domainGroupMember.setMemberName(principal);
+        if (StringUtil.isEmpty(domainName)) {
+            try (PreparedStatement ps = con.prepareStatement(SQL_GET_PRINCIPAL_GROUPS)) {
+                ps.setInt(1, principalId);
+                return getGroupsForPrincipal(caller, domainGroupMember, ps);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+        } else {
+            int domainId = getDomainId(domainName);
+            if (domainId == 0) {
+                throw notFoundError(caller, ZMSConsts.OBJECT_DOMAIN, domainName);
+            }
+            try (PreparedStatement ps = con.prepareStatement(SQL_GET_PRINCIPAL_GROUPS_DOMAIN)) {
+                ps.setInt(1, principalId);
+                ps.setInt(2, domainId);
+                return getGroupsForPrincipal(caller, domainGroupMember, ps);
+            } catch (SQLException ex) {
+                throw sqlError(ex, caller);
+            }
+        }
+    }
+
+    @Override
+    public List<PrincipalGroup> listGroupsWithUserAuthorityRestrictions() {
+
+        final String caller = "listGroupsWithUserAuthorityRestrictions";
+        List<PrincipalGroup> groups = new ArrayList<>();
+        try (PreparedStatement ps = con.prepareStatement(SQL_LIST_GROUPS_WITH_RESTRICTIONS)) {
+
+            try (ResultSet rs = executeQuery(ps, caller)) {
+                while (rs.next()) {
+                    PrincipalGroup group = new PrincipalGroup();
+                    group.setDomainName(rs.getString(ZMSConsts.DB_COLUMN_AS_DOMAIN_NAME));
+                    group.setGroupName(rs.getString(ZMSConsts.DB_COLUMN_AS_GROUP_NAME));
+                    group.setDomainUserAuthorityFilter(rs.getString(ZMSConsts.DB_COLUMN_AS_DOMAIN_USER_AUTHORITY_FILTER));
+                    groups.add(group);
+                }
+            }
+        } catch (SQLException ex) {
+            throw sqlError(ex, caller);
+        }
+
+        return groups;
+    }
+
     // To avoid firing multiple queries against DB, this function will generate 1 consolidated query for all domains->templates combination
     public String generateDomainTemplateVersionQuery(Map<String, Integer> templateNameAndLatestVersion) {
         StringBuilder query = new StringBuilder();
@@ -4313,7 +5319,7 @@ public class JDBCConnection implements ObjectStoreConnection {
         for (String templateName : templateNameAndLatestVersion.keySet()) {
             query.append("(domain_template.template = '" + templateName + "' and current_version < " + templateNameAndLatestVersion.get(templateName) + ") OR ");
         }
-        //To remove the last occurence of "OR" from the generated query
+        //To remove the last occurrence of "OR" from the generated query
         query.delete(query.lastIndexOf(") OR"), query.lastIndexOf("OR") + 3).append(");");
         return query.toString();
     }

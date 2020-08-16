@@ -129,6 +129,9 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
     private static final String TYPE_RESOURCE_NAMES = "ResourceNames";
     private static final String TYPE_AUTHORITY_KEYWORD = "AuthorityKeyword";
     private static final String TYPE_AUTHORITY_KEYWORDS = "AuthorityKeywords";
+    private static final String TYPE_GROUP = "Group";
+    private static final String TYPE_GROUP_SYSTEM_META = "GroupSystemMeta";
+    private static final String TYPE_GROUP_META = "GroupMeta";
 
     private static final String SERVER_READ_ONLY_MESSAGE = "Server in Maintenance Read-Only mode. Please try your request later";
 
@@ -240,6 +243,34 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
             void convertToLowerCase(Object obj) {
                 Entity entity = (Entity) obj;
                 entity.setName(entity.getName().toLowerCase());
+            }
+        },
+        GROUP {
+            void convertToLowerCase(Object obj) {
+                Group group = (Group) obj;
+                group.setName(group.getName().toLowerCase());
+                GROUP_MEMBER.convertToLowerCase(group.getGroupMembers());
+            }
+        },
+        GROUP_MEMBER {
+            void convertToLowerCase(Object obj) {
+                @SuppressWarnings("unchecked")
+                List<GroupMember> list = (List<GroupMember>) obj;
+                if (list != null) {
+                    ListIterator<GroupMember> iter = list.listIterator();
+                    while (iter.hasNext()) {
+                        GroupMember groupMember = iter.next();
+                        iter.set(groupMember.setMemberName(groupMember.getMemberName().toLowerCase()));
+                    }
+                }
+            }
+        },
+        GROUP_META {
+            void convertToLowerCase(Object obj) {
+                GroupMeta groupMeta = (GroupMeta) obj;
+                if (groupMeta.getNotifyRoles() != null) {
+                    groupMeta.setNotifyRoles(groupMeta.getNotifyRoles().toLowerCase());
+                }
             }
         },
         LIST {
@@ -1793,6 +1824,24 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         validateString(role.getUserAuthorityExpiration(), TYPE_AUTHORITY_KEYWORD, caller);
     }
 
+    void validateGroupValues(Group group) {
+
+        final String caller = "validateGroupValues";
+
+        validateString(group.getNotifyRoles(), TYPE_RESOURCE_NAMES, caller);
+        validateString(group.getUserAuthorityFilter(), TYPE_AUTHORITY_KEYWORDS, caller);
+        validateString(group.getUserAuthorityExpiration(), TYPE_AUTHORITY_KEYWORD, caller);
+    }
+
+    void validateGroupMetaValues(GroupMeta meta) {
+
+        final String caller = "validateGroupMetaValues";
+
+        validateString(meta.getNotifyRoles(), TYPE_RESOURCE_NAMES, caller);
+        validateString(meta.getUserAuthorityFilter(), TYPE_AUTHORITY_KEYWORDS, caller);
+        validateString(meta.getUserAuthorityExpiration(), TYPE_AUTHORITY_KEYWORD, caller);
+    }
+
     @Override
     public void putDomainSystemMeta(ResourceContext ctx, String domainName, String attribute,
             String auditRef, DomainMeta meta) {
@@ -2943,7 +2992,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
 
         // validate the user authority settings if they're provided
 
-        validateRoleUserAuthorityAttributes(role.getUserAuthorityFilter(), role.getUserAuthorityExpiration(), caller);
+        validateUserAuthorityAttributes(role.getUserAuthorityFilter(), role.getUserAuthorityExpiration(), caller);
 
         // verify that request is properly authenticated for this request
 
@@ -3006,7 +3055,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         dbService.executePutRole(ctx, domainName, roleName, role, auditRef, caller);
     }
 
-   void validateRoleStructure(final Role role, final String domainName, final String caller) {
+    void validateRoleStructure(final Role role, final String domainName, final String caller) {
 
         if ((role.getMembers() != null && !role.getMembers().isEmpty())
                 && (role.getRoleMembers() != null && !role.getRoleMembers().isEmpty())) {
@@ -3056,7 +3105,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
 
     void updateRoleMemberUserAuthorityExpiry(final Role role, final String caller) {
 
-        final String userAuthorityExpiry = getUserAuthorityExpiryAttr(role);
+        final String userAuthorityExpiry = getUserAuthorityExpiryAttr(role.getUserAuthorityExpiration());
         if (userAuthorityExpiry == null) {
             return;
         }
@@ -3473,7 +3522,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         return validateUserRoleMembers || validateServiceRoleMembers || userAuthorityFilter != null;
     }
 
-    String getUserAuthorityExpiryAttr(final Role role) {
+    String getUserAuthorityExpiryAttr(final String userAuthorityExpiry) {
 
         // we must have a valid user authority
 
@@ -3481,17 +3530,16 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
             return null;
         }
 
-        final String userAuthorityExpiry = role.getUserAuthorityExpiration();
-        if (userAuthorityExpiry == null || userAuthorityExpiry.isEmpty()) {
+        if (StringUtil.isEmpty(userAuthorityExpiry)) {
             return null;
         }
 
         return userAuthorityExpiry;
     }
 
-    Timestamp getUserAuthorityExpiry(final String userName, final Role role, final String caller) {
+    Timestamp getUserAuthorityExpiry(final String userName, final String expiryAttrValue, final String caller) {
 
-        final String userAuthorityExpiry = getUserAuthorityExpiryAttr(role);
+        final String userAuthorityExpiry = getUserAuthorityExpiryAttr(expiryAttrValue);
         if (userAuthorityExpiry == null) {
             return null;
         }
@@ -3514,7 +3562,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
                 addlUserCheckDomainPrefixList);
 
         if (bUser) {
-            Timestamp userAuthorityExpiry = getUserAuthorityExpiry(roleMember.memberName, role, caller);
+            Timestamp userAuthorityExpiry = getUserAuthorityExpiry(roleMember.memberName, role.getUserAuthorityExpiration(), caller);
             if (userAuthorityExpiry != null) {
                 roleMember.setExpiration(userAuthorityExpiry);
             } else {
@@ -3557,6 +3605,23 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         notificationManager.sendNotifications(notifications);
     }
 
+    void sendGroupMembershipApprovalNotification(final String domain, final String org, final String groupName,
+                                                 final String member, final String auditRef, final String principal,
+                                                 final Group group) {
+        Map<String, String> details = new HashMap<>();
+        details.put(NOTIFICATION_DETAILS_DOMAIN, domain);
+        details.put(NOTIFICATION_DETAILS_GROUP, groupName);
+        details.put(NOTIFICATION_DETAILS_MEMBER, member);
+        details.put(NOTIFICATION_DETAILS_REASON, auditRef);
+        details.put(NOTIFICATION_DETAILS_REQUESTER, principal);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Sending Group Membership Approval notification after putGroupMembership");
+        }
+
+        List<Notification> notifications = new PutGroupMembershipNotificationTask(domain, org, group, details, dbService, userDomainPrefix).getNotifications();
+        notificationManager.sendNotifications(notifications);
+    }
+
     public void deletePendingMembership(ResourceContext ctx, String domainName, String roleName,
             String memberName, String auditRef) {
 
@@ -3595,7 +3660,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
             throw ZMSUtils.forbiddenError("deletePendingMembership: principal is not authorized to delete pending members", caller);
         }
 
-        // add the member to the specified role
+        // delete the member from the specified role
 
         dbService.executeDeletePendingMembership(ctx, domainName, roleName, memberName, auditRef, caller);
     }
@@ -7059,6 +7124,40 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         }
     }
 
+    void verifyAuthorizedServiceGroupOperation(final String authorizedService, final String operationName,
+                                              final String groupName) {
+
+        // only process this request if we have an authorized service specified
+
+        if (authorizedService == null) {
+            return;
+        }
+
+        // lookup the authorized services struct and see if we have the
+        // service specified in the allowed list
+
+        ArrayList<AllowedOperation> ops = getAuthorizedServiceOperations(authorizedService, operationName);
+
+        // otherwise make sure the operation is allowed for this service
+
+        boolean opAllowed = false;
+        for (AllowedOperation op : ops) {
+            if (!op.getName().equalsIgnoreCase(operationName)) {
+                continue;
+            }
+
+            opAllowed = op.isOperationAllowedOn("group", groupName, AllowedOperation.MatchType.EQUALS) ||
+                    op.isOperationAllowedOn("group-prefix", groupName, AllowedOperation.MatchType.STARTS_WITH);
+            break;
+        }
+
+        if (!opAllowed) {
+            throw ZMSUtils.forbiddenError("Unauthorized Operation (" + operationName
+                    + ") for Service " + authorizedService
+                    + " on group " + groupName, operationName);
+        }
+    }
+
     /**
      * If opItemType and value are not defined in the authorized_services JSON file,
      * you can simply pass NULL for these two values.
@@ -7362,7 +7461,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
 
         // validate the user authority settings if they're provided
 
-        validateRoleUserAuthorityAttributes(meta.getUserAuthorityFilter(), meta.getUserAuthorityExpiration(), caller);
+        validateUserAuthorityAttributes(meta.getUserAuthorityFilter(), meta.getUserAuthorityExpiration(), caller);
 
         // verify that request is properly authenticated for this request
 
@@ -7549,8 +7648,19 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
     Role getRoleFromDomain(final String roleName, AthenzDomain domain) {
         if (domain != null && domain.getRoles() != null) {
             for (Role role : domain.getRoles()) {
-                if (role.getName().equalsIgnoreCase(domain.getName() + AuthorityConsts.ROLE_SEP + roleName)) {
+                if (role.getName().equalsIgnoreCase(ZMSUtils.roleResourceName(domain.getName(), roleName))) {
                     return role;
+                }
+            }
+        }
+        return null;
+    }
+
+    Group getGroupFromDomain(final String groupName, AthenzDomain domain) {
+        if (domain != null && domain.getGroups() != null) {
+            for (Group group : domain.getGroups()) {
+                if (group.getName().equalsIgnoreCase(ZMSUtils.groupResourceName(domain.getName(), groupName))) {
+                    return group;
                 }
             }
         }
@@ -7719,70 +7829,642 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         dbService.executePutRoleReview(ctx, domainName, roleName, role, auditRef, caller);
     }
 
+    List<Group> setupGroupList(AthenzDomain domain, Boolean members) {
+
+        // if we're asked to return the members as well then we
+        // just need to return the data as is without any modifications
+
+        List<Group> groups;
+        if (members == Boolean.TRUE) {
+            groups = domain.getGroups();
+        } else {
+            groups = new ArrayList<>();
+            for (Group group : domain.getGroups()) {
+                Group newGroup = new Group()
+                        .setName(group.getName())
+                        .setModified(group.getModified())
+                        .setAuditEnabled(group.getAuditEnabled())
+                        .setSelfServe(group.getSelfServe())
+                        .setReviewEnabled(group.getReviewEnabled())
+                        .setLastReviewedDate(group.getLastReviewedDate());
+                groups.add(newGroup);
+            }
+        }
+
+        return groups;
+    }
+
     @Override
     public Groups getGroups(ResourceContext ctx, String domainName, Boolean members) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        validateRequest(ctx.request(), caller);
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+
+        Groups result = new Groups();
+
+        AthenzDomain domain = getAthenzDomain(domainName, false);
+        if (domain == null) {
+            throw ZMSUtils.notFoundError("getGroups: Domain not found: '" + domainName + "'", caller);
+        }
+
+        result.setList(setupGroupList(domain, members));
+        return result;
     }
 
     @Override
     public Group getGroup(ResourceContext ctx, String domainName, String groupName, Boolean auditLog, Boolean pending) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        validateRequest(ctx.request(), caller);
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+
+        Group group = dbService.getGroup(domainName, groupName, auditLog, pending);
+        if (group == null) {
+            throw ZMSUtils.notFoundError("getGroup: Group not found: '" +
+                    ZMSUtils.groupResourceName(domainName, groupName) + "'", caller);
+        }
+
+        return group;
+    }
+
+    boolean isConsistentGroupName(final String domainName, final String groupName, Group group) {
+
+        String resourceName = ZMSUtils.groupResourceName(domainName, groupName);
+
+        // first lets assume we have the expected name specified in the group
+
+        if (resourceName.equals(group.getName())) {
+            return true;
+        }
+
+        // if not check to see if the group contains the relative local name
+        // part only instead of the expected resourceName and update accordingly
+
+        if (groupName.equals(group.getName())) {
+            group.setName(resourceName);
+            return true;
+        }
+
+        // we have a mismatch
+
+        return false;
+    }
+
+    private void addNormalizedGroupMember(Map<String, GroupMember> normalizedMembers, GroupMember member) {
+
+        member.setMemberName(normalizeDomainAliasUser(member.getMemberName()));
+
+        // we'll automatically ignore any duplicates
+
+        if (!normalizedMembers.containsKey(member.getMemberName())) {
+            normalizedMembers.put(member.getMemberName(), member);
+        }
+    }
+
+    void normalizeGroupMembers(Group group) {
+
+        Map<String, GroupMember> normalizedMembers = new HashMap<>();
+
+        List<GroupMember> groupMembers = group.getGroupMembers();
+        if (groupMembers != null) {
+            for (GroupMember member : groupMembers) {
+                addNormalizedGroupMember(normalizedMembers, member);
+            }
+        }
+        group.setGroupMembers(new ArrayList<>(normalizedMembers.values()));
+    }
+
+    void validateGroupMemberPrincipals(final Group group, final String domainUserAuthorityFilter, final String caller) {
+
+        // make sure we have either one of the options enabled for verification
+
+        final String userAuthorityFilter = enforcedUserAuthorityFilter(group.getUserAuthorityFilter(),
+                domainUserAuthorityFilter);
+
+        if (!shouldValidateRoleMembers(userAuthorityFilter)) {
+            return;
+        }
+
+        for (GroupMember groupMember : group.getGroupMembers()) {
+            validateRoleMemberPrincipal(groupMember.getMemberName(), userAuthorityFilter, caller);
+        }
+    }
+
+    void updateGroupMemberUserAuthorityExpiry(final Group group, final String caller) {
+
+        final String userAuthorityExpiry = getUserAuthorityExpiryAttr(group.getUserAuthorityExpiration());
+        if (userAuthorityExpiry == null) {
+            return;
+        }
+
+        for (GroupMember groupMember : group.getGroupMembers()) {
+
+            // we only process users and automatically ignore services which
+            // are not handled by user authority
+
+            if (ZMSUtils.isUserDomainPrincipal(groupMember.getMemberName(), userDomainPrefix,
+                    addlUserCheckDomainPrefixList)) {
+
+                // if we don't have an expiry specified for the user
+                // then we're not going to allow this member
+
+                Date expiry = userAuthority.getDateAttribute(groupMember.getMemberName(), userAuthorityExpiry);
+                if (expiry == null) {
+                    throw ZMSUtils.requestError("Invalid member: " + groupMember.getMemberName() +
+                            ". No expiry date attribute specified in user authority", caller);
+                }
+                groupMember.setExpiration(Timestamp.fromDate(expiry));
+            }
+        }
     }
 
     @Override
     public void putGroup(ResourceContext ctx, String domainName, String groupName, String auditRef, Group group) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(group, TYPE_GROUP, caller);
+        validateGroupValues(group);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        AthenzObject.GROUP.convertToLowerCase(group);
+
+        // validate the user authority settings if they're provided
+
+        validateUserAuthorityAttributes(group.getUserAuthorityFilter(), group.getUserAuthorityExpiration(), caller);
+
+        // verify that request is properly authenticated for this request
+
+        verifyAuthorizedServiceOperation(((RsrcCtxWrapper) ctx).principal().getAuthorizedService(), caller);
+
+        // verify the group name in the URI and request are consistent
+
+        if (!isConsistentGroupName(domainName, groupName, group)) {
+            throw ZMSUtils.requestError("putGroup: Inconsistent group names - expected: "
+                    + ZMSUtils.groupResourceName(domainName, groupName) + ", actual: "
+                    + group.getName(), caller);
+        }
+
+        Domain domain = dbService.getDomain(domainName, false);
+        if (domain == null) {
+            throw ZMSUtils.notFoundError("No such domain: " + domainName, caller);
+        }
+
+        // normalize and remove duplicate members
+
+        normalizeGroupMembers(group);
+
+        // check to see if we need to validate user and service members
+        // and possibly user authority filter restrictions
+
+        validateGroupMemberPrincipals(group, domain.getUserAuthorityFilter(), caller);
+
+        // if the role is review enabled then it cannot contain
+        // role members as we want review and audit enabled roles
+        // to be enabled as such and then add individual members
+
+        if (group.getReviewEnabled() == Boolean.TRUE && !group.getGroupMembers().isEmpty()) {
+            throw ZMSUtils.requestError("Set review enabled flag using group meta api", caller);
+        }
+
+        // update group expiry based on user authority expiry if configured
+
+        updateGroupMemberUserAuthorityExpiry(group, caller);
+
+        // process our request
+
+        dbService.executePutGroup(ctx, domainName, groupName, group, auditRef, caller);
     }
 
     @Override
     public void deleteGroup(ResourceContext ctx, String domainName, String groupName, String auditRef) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+
+        // verify that request is properly authenticated for this request
+
+        verifyAuthorizedServiceOperation(((RsrcCtxWrapper) ctx).principal().getAuthorizedService(), caller);
+
+        dbService.executeDeleteGroup(ctx, domainName, groupName, auditRef, caller);
     }
 
     @Override
     public GroupMembership getGroupMembership(ResourceContext ctx, String domainName, String groupName, String memberName, String expiration) {
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        validateRequest(ctx.request(), caller);
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(memberName, TYPE_MEMBER_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        memberName = normalizeDomainAliasUser(memberName.toLowerCase());
+        long expiryTimestamp = getModTimestamp(expiration);
+
+        return dbService.getGroupMembership(domainName, groupName, memberName, expiryTimestamp, false);
     }
 
-    @Override
-    public DomainGroupMember getPrincipalGroups(ResourceContext ctx, String principal, String domainName) {
-        final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+    void setGroupMemberExpiration(final Group group, final GroupMember groupMember, final String caller) {
+
+        if (ZMSUtils.isUserDomainPrincipal(groupMember.getMemberName(), userDomainPrefix,
+                addlUserCheckDomainPrefixList)) {
+            Timestamp userAuthorityExpiry = getUserAuthorityExpiry(groupMember.memberName, group.getUserAuthorityExpiration(), caller);
+            if (userAuthorityExpiry != null) {
+                groupMember.setExpiration(userAuthorityExpiry);
+            }
+        }
+    }
+
+    boolean isAllowedPutGroupMembership(Principal principal, final AthenzDomain domain, final Group group,
+                                   final GroupMember groupMember) {
+
+        // first lets check if the principal has update access on the group
+
+        if (isAllowedPutMembershipAccess(principal, domain, group.getName())) {
+
+            // even with update access, if the group is audit/review enabled, member status
+            // can not be set to active/approved. It has to be approved by audit/review admins.
+            // for all other groups, set member status to active/approved immediately
+
+            boolean auditEnabled = (group.getAuditEnabled() == Boolean.TRUE || group.getReviewEnabled() == Boolean.TRUE);
+            groupMember.setActive(!auditEnabled);
+            groupMember.setApproved(!auditEnabled);
+            return true;
+
+        } else if (group.getSelfServe() == Boolean.TRUE) {
+
+            // if the group is self-serve then users are allowed to add anyone
+            // since the request must be approved by someone else so we'll allow it
+            // but with member status set to inactive.
+
+            groupMember.setActive(false);
+            groupMember.setApproved(false);
+            return true;
+        }
+
+        return false;
     }
 
     @Override
     public void putGroupMembership(ResourceContext ctx, String domainName, String groupName, String memberName, String auditRef, GroupMembership membership) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        setRequestDomain(ctx, domainName);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(memberName, TYPE_MEMBER_NAME, caller);
+        validate(membership, TYPE_MEMBERSHIP, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        groupName = groupName.toLowerCase();
+        memberName = memberName.toLowerCase();
+        AthenzObject.MEMBERSHIP.convertToLowerCase(membership);
+
+        final Principal principal = ((RsrcCtxWrapper) ctx).principal();
+
+        // verify that request is properly authenticated for this request
+
+        verifyAuthorizedServiceGroupOperation(principal.getAuthorizedService(), caller, groupName);
+
+        // verify that the member name in the URI and object provided match
+
+        if (!memberName.equals(membership.getMemberName())) {
+            throw ZMSUtils.requestError("putGroupMembership: Member name in URI and GroupMembership object do not match", caller);
+        }
+
+        // group name is optional so we'll verify only if the value is present in the object
+
+        if (membership.getGroupName() != null && !groupName.equals(membership.getGroupName())) {
+            throw ZMSUtils.requestError("putGroupMembership: Group name in URI and GroupMembership object do not match", caller);
+        }
+
+        // extract our role object to get its attributes
+
+        AthenzDomain domain = getAthenzDomain(domainName, false);
+        Group group = getGroupFromDomain(groupName, domain);
+
+        if (group == null) {
+            throw ZMSUtils.requestError("Invalid groupname specified", caller);
+        }
+
+        // create and normalize the role member object
+
+        GroupMember groupMember = new GroupMember();
+        groupMember.setMemberName(normalizeDomainAliasUser(memberName));
+        setGroupMemberExpiration(group, groupMember, caller);
+
+        // check to see if we need to validate the principal
+
+        final String userAuthorityFilter = enforcedUserAuthorityFilter(group.getUserAuthorityFilter(),
+                domain.getDomain().getUserAuthorityFilter());
+        if (shouldValidateRoleMembers(userAuthorityFilter)) {
+            validateRoleMemberPrincipal(groupMember.getMemberName(), userAuthorityFilter, caller);
+        }
+
+        // authorization check which also automatically updates
+        // the active and approved flags for the request
+
+        if (!isAllowedPutGroupMembership(principal, domain, group, groupMember)) {
+            throw ZMSUtils.forbiddenError("putGroupMembership: principal is not authorized to add members", caller);
+        }
+
+        // add the member to the specified role
+
+        dbService.executePutGroupMembership(ctx, domainName, groupName, groupMember, auditRef, caller);
+
+        // new group member with pending status. Notify approvers
+
+        if (groupMember.getApproved() == Boolean.FALSE) {
+            sendGroupMembershipApprovalNotification(domainName, domain.getDomain().getOrg(), groupName,
+                    groupMember.getMemberName(), auditRef, principal.getFullName(), group);
+        }
     }
 
     @Override
     public void deleteGroupMembership(ResourceContext ctx, String domainName, String groupName, String memberName, String auditRef) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(memberName, TYPE_MEMBER_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        memberName = memberName.toLowerCase();
+
+        // verify that request is properly authenticated for this request
+
+        verifyAuthorizedServiceGroupOperation(((RsrcCtxWrapper) ctx).principal().getAuthorizedService(), caller, groupName);
+
+        dbService.executeDeleteGroupMembership(ctx, domainName, groupName, normalizeDomainAliasUser(memberName),
+                auditRef, caller);
+    }
+
+    boolean isAllowedDeletePendingGroupMembership(Principal principal, final String domainName,
+                                                  final String groupName, final String memberName) {
+
+        // first lets check if the principal has update access on the group
+
+        AthenzDomain domain = getAthenzDomain(domainName, false);
+        if (domain == null) {
+            throw ZMSUtils.notFoundError("Domain not found: " + domainName, "deletePendingGroupMembership");
+        }
+        if (isAllowedPutMembershipAccess(principal, domain, ZMSUtils.groupResourceName(domainName, groupName))) {
+            return true;
+        }
+
+        // check of the requestor of the pending request is the principal
+
+        GroupMembership pendingGroupMember = dbService.getGroupMembership(domainName, groupName, memberName, 0, true);
+        return pendingGroupMember != null && principal.getFullName().equals(pendingGroupMember.getRequestPrincipal());
     }
 
     @Override
     public void deletePendingGroupMembership(ResourceContext ctx, String domainName, String groupName, String memberName, String auditRef) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(memberName, TYPE_MEMBER_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        memberName = normalizeDomainAliasUser(memberName.toLowerCase());
+
+        // verify that request is properly authenticated for this request
+
+        Principal principal = ((RsrcCtxWrapper) ctx).principal();
+        verifyAuthorizedServiceGroupOperation(principal.getAuthorizedService(), caller, groupName);
+
+        // authorization check - there are two supported use cases
+        // 1) the caller has authorization in the domain to update members in a group
+        // 2) the caller is the original requestor for the pending request
+
+        if (!isAllowedDeletePendingGroupMembership(principal, domainName, groupName, memberName)) {
+            throw ZMSUtils.forbiddenError("deletePendingGroupMembership: principal is not authorized to delete pending members", caller);
+        }
+
+        // delete the member from the specified group
+
+        dbService.executeDeletePendingGroupMembership(ctx, domainName, groupName, memberName, auditRef, caller);
     }
 
     @Override
-    public void putGroupSystemMeta(ResourceContext ctx, String domainName, String groupName, String attribute, String auditRef, GroupSystemMeta detail) {
+    public DomainGroupMember getPrincipalGroups(ResourceContext ctx, String principal, String domainName) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (StringUtil.isEmpty(principal)) {
+            // If principal not specified, get roles for current user
+            principal = ((RsrcCtxWrapper) ctx).principal().getFullName();
+        }
+        validateRequest(ctx.request(), caller);
+        validate(principal, TYPE_ENTITY_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        principal = principal.toLowerCase();
+
+        if (!StringUtil.isEmpty(domainName)) {
+            validate(domainName, TYPE_DOMAIN_NAME, caller);
+            domainName = domainName.toLowerCase();
+            setRequestDomain(ctx, domainName);
+        }
+
+        return dbService.getPrincipalGroups(principal, domainName);
     }
 
     @Override
-    public void putGroupMeta(ResourceContext ctx, String domainName, String groupName, String auditRef, GroupMeta detail) {
+    public void putGroupSystemMeta(ResourceContext ctx, String domainName, String groupName, String attribute,
+                                   String auditRef, GroupSystemMeta meta) {
+
         final String caller = ctx.getApiName();
-        throw ZMSUtils.requestError("Not yet implemented", caller);
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+        validate(meta, TYPE_GROUP_SYSTEM_META, caller);
+        validate(attribute, TYPE_SIMPLE_NAME, caller);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        attribute = attribute.toLowerCase();
+
+        // verify that request is properly authenticated for this request
+
+        Principal principal = ((RsrcCtxWrapper) ctx).principal();
+        verifyAuthorizedServiceOperation(principal.getAuthorizedService(), caller);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("putGroupSystemMeta: name={}, group={} attribute={}, meta={}",
+                    domainName, groupName, attribute, meta);
+        }
+
+        // if we are resetting the configured value then the caller
+        // must also have a delete action available for the same resource
+
+        boolean deleteAllowed = isAllowedSystemMetaDelete(principal, domainName, attribute, "group");
+
+        dbService.executePutGroupSystemMeta(ctx, domainName, groupName, meta, attribute, deleteAllowed, auditRef, caller);
+    }
+
+    @Override
+    public void putGroupMeta(ResourceContext ctx, String domainName, String groupName, String auditRef, GroupMeta meta) {
+
+        final String caller = ctx.getApiName();
+        logPrincipal(ctx);
+
+        if (readOnlyMode) {
+            throw ZMSUtils.requestError(SERVER_READ_ONLY_MESSAGE, caller);
+        }
+
+        validateRequest(ctx.request(), caller);
+        validate(domainName, TYPE_DOMAIN_NAME, caller);
+        validate(groupName, TYPE_ENTITY_NAME, caller);
+
+        // validate meta values - validator will enforce any patters
+        // defined in the schema and we need to validate the rest of the
+        // integer and string values. for now we're making sure we're not
+        // getting any negative values for our integer settings
+
+        validate(meta, TYPE_GROUP_META, caller);
+        validateGroupMetaValues(meta);
+
+        // for consistent handling of all requests, we're going to convert
+        // all incoming object values into lower case (e.g. domain, role,
+        // policy, service, etc name)
+
+        domainName = domainName.toLowerCase();
+        setRequestDomain(ctx, domainName);
+        groupName = groupName.toLowerCase();
+        AthenzObject.GROUP_META.convertToLowerCase(meta);
+
+        // validate the user authority settings if they're provided
+
+        validateUserAuthorityAttributes(meta.getUserAuthorityFilter(), meta.getUserAuthorityExpiration(), caller);
+
+        // verify that request is properly authenticated for this request
+
+        Principal principal = ((RsrcCtxWrapper) ctx).principal();
+        verifyAuthorizedServiceOperation(principal.getAuthorizedService(), caller);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("putGroupMeta: name={}, role={} meta={}", domainName, groupName, meta);
+        }
+
+        dbService.executePutGroupMeta(ctx, domainName, groupName, meta, auditRef, caller);
     }
 
     @Override
@@ -7827,8 +8509,7 @@ public class ZMSImpl implements Authorizer, KeyStore, ZMSHandler {
         }
     }
 
-    void validateRoleUserAuthorityAttributes(final String authorityFilter, final String authorityExpiration,
-                                             final String caller) {
+    void validateUserAuthorityAttributes(final String authorityFilter, final String authorityExpiration, final String caller) {
         validateUserAuthorityFilterAttribute(authorityFilter, caller);
         validateUserAuthorityDateAttribute(authorityExpiration, caller);
     }

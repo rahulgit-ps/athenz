@@ -172,13 +172,13 @@ public class ZMSUtilsTest {
     }
 
     @Test(dataProvider = "members")
-    public void testRemoveMembers(List<String> originalRoleMembersList,
+    public void testRemoveRoleMembers(List<String> originalRoleMembersList,
                                   List<String> removeRoleMembersList, int expectedSize) {
 
         List<RoleMember> originalRoleMembers = ZMSUtils.convertMembersToRoleMembers(originalRoleMembersList);
         List<RoleMember> removeRoleMembers = ZMSUtils.convertMembersToRoleMembers(removeRoleMembersList);
 
-        ZMSUtils.removeMembers(originalRoleMembers, removeRoleMembers);
+        ZMSUtils.removeRoleMembers(originalRoleMembers, removeRoleMembers);
 
         //remove case
         for (RoleMember orgMember : originalRoleMembers) {
@@ -193,13 +193,13 @@ public class ZMSUtilsTest {
     }
 
     @Test
-    public void testRemoveMembersInvalidInput() {
+    public void testRemoveRoleMembersInvalidInput() {
         List<RoleMember> list = Collections.singletonList(new RoleMember().setMemberName("member1"));
-        ZMSUtils.removeMembers(list, null);
+        ZMSUtils.removeRoleMembers(list, null);
         assertEquals(list.size(), 1);
         assertEquals(list.get(0).getMemberName(), "member1");
 
-        ZMSUtils.removeMembers(null, list);
+        ZMSUtils.removeRoleMembers(null, list);
         assertEquals(list.size(), 1);
         assertEquals(list.get(0).getMemberName(), "member1");
     }

@@ -262,7 +262,7 @@ public class NotificationManagerTest {
         // run during init call and then the real data for the second
         // call
 
-        Mockito.when(dbsvc.getRoleExpiryMembers()).thenReturn(null);
+        Mockito.when(dbsvc.getRoleExpiryMembers(1)).thenReturn(null);
         DomainRoleMembersFetcher domainRoleMembersFetcher = new DomainRoleMembersFetcher(dbsvc, USER_DOMAIN_PREFIX);
         NotificationCommon notificationCommon = new NotificationCommon(domainRoleMembersFetcher, USER_DOMAIN_PREFIX);
 
