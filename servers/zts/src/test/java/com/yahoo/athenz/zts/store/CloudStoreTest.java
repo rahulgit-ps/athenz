@@ -51,7 +51,7 @@ public class CloudStoreTest {
             + "  \"accountId\" : \"111111111111\",\n"
             + "  \"pendingTime\" : \"2016-04-26T05:37:23Z\",\n"
             + "  \"imageId\" : \"ami-c229c0a2\",\n"
-            + "  \"architecture\" : \"x86_64\",\n"
+            + "  \"architecture\" : \"aarch64\",\n"
             + "  \"kernelId\" : null,\n"
             + "  \"ramdiskId\" : null,\n"
             + "  \"region\" : \"us-west-2\"\n"
