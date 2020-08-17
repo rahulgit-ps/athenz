@@ -2,9 +2,18 @@ sudo: required
 services:
 - docker
 language: java
+arch:
+  - amd64
+  - arm64
 jdk:
 - openjdk8
 before_install:
+- if [ "${TRAVIS_CPU_ARCH}" == "arm64" ]; then
+     sudo apt-get install maven;
+     sudo apt-get install openjdk-8-jdk;
+     export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64;
+     export PATH=$JAVA_HOME/bin:$PATH;
+  fi
 - eval "$(gimme 1.13.4)"
 - nvm install 12
 - npm install -g npm@latest
