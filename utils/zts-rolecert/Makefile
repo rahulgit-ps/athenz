@@ -27,8 +27,8 @@ all:
 	@echo "Please install 1.11.x or newer version of golang"
 else
 
-.PHONY: vet fmt test linux darwin
-all: vet fmt test linux darwin
+.PHONY: vet fmt test linux 
+all: vet fmt test linux 
 
 endif
 
