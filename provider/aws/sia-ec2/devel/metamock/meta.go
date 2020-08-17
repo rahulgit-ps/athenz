@@ -41,7 +41,7 @@ var (
 		"accountId" : "000000000000",
 		"imageId" : "ami-527b8832",
 		"pendingTime" : "2016-05-02T22:23:14Z",
-		"architecture" : "x86_64",
+		"architecture" : "aarch64",
 		"kernelId" : null,
 		"ramdiskId" : null,
 		"region" : "us-west-2"
